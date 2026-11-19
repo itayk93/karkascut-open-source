@@ -1,0 +1,39 @@
+name: Quality
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: python -m pip install -r scripts/eye-contact-requirements.txt
+      - run: npm ci --ignore-scripts
+      - run: python -m unittest discover -s scripts -p test_speech_alignment.py -v
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+        env:
+          NODE_ENV: test
+          OPENAI_API_KEY: ''
+          NVIDIA_API_KEY: ''
+          PYTHON_BIN: python
+          REQUIRE_EYE_CONTACT_TESTS: '1'
+      - run: npm run build
