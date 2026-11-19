@@ -1,0 +1,51 @@
+name: Import source archive
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  import:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Validate and extract source
+        env:
+          EXPECTED_SHA256: fb8bcab38c431e3d9a9f6081357135083bd2a59c50923adb03f504d07498a4cb
+        run: |
+          python3 - <<'PY'
+          import hashlib, os, pathlib, stat, zipfile
+          import base64
+          chunks = sorted(pathlib.Path('source-import').glob('part-*.txt'))
+          assert len(chunks) == 17
+          archive = pathlib.Path('karkascut-source.zip')
+          archive.write_bytes(base64.b64decode(''.join(p.read_text().strip() for p in chunks), validate=True))
+          assert hashlib.sha256(archive.read_bytes()).hexdigest() == os.environ['EXPECTED_SHA256'], 'Archive checksum mismatch'
+          with zipfile.ZipFile(archive) as z:
+              entries = z.infolist()
+              assert len(entries) == 221 and sum(x.file_size for x in entries) < 20000000
+              seen = set()
+              for item in entries:
+                  p = pathlib.PurePosixPath(item.filename)
+                  mode = item.external_attr >> 16
+                  assert not p.is_absolute() and '..' not in p.parts and not item.is_dir()
+                  assert not any(part in {'.git', 'node_modules', '__pycache__', 'dist'} for part in p.parts)
+                  assert not stat.S_ISLNK(mode) and stat.S_ISREG(mode)
+                  assert item.filename not in seen
+                  seen.add(item.filename)
+              for item in entries:
+                  p = pathlib.Path(item.filename)
+                  p.parent.mkdir(parents=True, exist_ok=True)
+                  p.write_bytes(z.read(item))
+                  p.chmod(0o755 if (item.external_attr >> 16) & 0o111 else 0o644)
+          archive.unlink()
+          for chunk in chunks:
+              chunk.unlink()
+          pathlib.Path('source-import').rmdir()
+          PY
+      - name: Commit source tree
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Import clean MIT source release'
+          git push origin HEAD:main
