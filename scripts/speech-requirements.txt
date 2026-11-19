@@ -1,0 +1,4 @@
+# Isolated CPU runtime; no change to the system Python environment.
+whisperx==3.7.4
+silero-vad==6.2.0
+transformers==4.57.3
